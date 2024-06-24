@@ -46,6 +46,37 @@ namespace Client
             watcher.EventArrived += new EventArrivedEventHandler(DeviceChangedEvent);
             watcher.Start();
             AllowInPort();
+            // делаем невидимой нашу иконку в трее
+            notifyIcon1.Visible = false;
+            // добавляем Эвент или событие по 2му клику мышки, 
+            //вызывая функцию  notifyIcon1_MouseDoubleClick
+            this.notifyIcon1.MouseDoubleClick += new MouseEventHandler(notifyIcon1_MouseDoubleClick);
+
+            // добавляем событие на изменение окна
+            this.Resize += new System.EventHandler(this.Form1_Resize);
+        }
+
+        private void Form1_Resize(object sender, EventArgs e)
+        {
+            // проверяем наше окно, и если оно было свернуто, делаем событие        
+            if (WindowState == FormWindowState.Minimized)
+            {
+                // прячем наше окно из панели
+                this.ShowInTaskbar = false;
+                // делаем нашу иконку в трее активной
+                notifyIcon1.Visible = true;
+            }
+        }
+
+
+        private void notifyIcon1_MouseDoubleClick(object sender, MouseEventArgs e)
+        {
+            // делаем нашу иконку скрытой
+            notifyIcon1.Visible = false;
+            // возвращаем отображение окна в панели
+            this.ShowInTaskbar = true;
+            //разворачиваем окно
+            WindowState = FormWindowState.Normal;
         }
 
         public static void AllowInPort(string port = "7000")
@@ -677,9 +708,14 @@ namespace Client
 
         public static List<IPAddress> GetDefaultDns()
         {
-            var card = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault();
-            if (card == null) return null;
-            var address = card.GetIPProperties().DnsAddresses.ToList();
+            //var card = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault();
+            var cards = NetworkInterface.GetAllNetworkInterfaces();
+            if (cards == null) return null;
+            List<IPAddress> address = new List<IPAddress>();
+            foreach(var card in cards)
+            {
+                address.AddRange(card.GetIPProperties().DnsAddresses.ToList());
+            }
             return address;
         }
 
@@ -711,8 +747,6 @@ namespace Client
 
             string RemoteAddresses = "";
             List<string> ipList = new List<string>();
-            //ipList.Add("10.1.11.35");
-            //ipList.Add("10.1.11.36");
             foreach (IPAddress theaddress in addresslist)
             {
                 if (ipList.Contains(theaddress.ToString()))
@@ -747,58 +781,62 @@ namespace Client
                     }
                     continue;
                 }
-                var a = theaddress.Address;
-                byte[] ip = theaddress.GetAddressBytes();
-                ip[3] = (byte)(ip[3] + 1);
-                if (ip[3] == 0)
+                //var a = theaddress.Address;
+                if (!theaddress.IsIPv6SiteLocal)
                 {
-                    ip[2] = (byte)(ip[2] + 1);
-                    if (ip[2] == 0)
+                    byte[] ip = theaddress.GetAddressBytes();
+                    ip[3] = (byte)(ip[3] + 1);
+                    if (ip[3] == 0)
                     {
-                        ip[1] = (byte)(ip[1] + 1);
-                        if (ip[1] == 0)
+                        ip[2] = (byte)(ip[2] + 1);
+                        if (ip[2] == 0)
                         {
-                            ip[0] = (byte)(ip[0] + 1);
+                            ip[1] = (byte)(ip[1] + 1);
+                            if (ip[1] == 0)
+                            {
+                                ip[0] = (byte)(ip[0] + 1);
+                            }
                         }
                     }
-                }
-            
-                byte[] ipMinus = theaddress.GetAddressBytes();
-                if (ipMinus[3] == 0)
-                {
-                    ipMinus[3] = 255;
-                    if (ipMinus[2] == 0)
-                    {
-                        ipMinus[2] = 255;
 
-                        if (ipMinus[1] == 0)
+                    byte[] ipMinus = theaddress.GetAddressBytes();
+                    if (ipMinus[3] == 0)
+                    {
+                        ipMinus[3] = 255;
+                        if (ipMinus[2] == 0)
                         {
-                            ipMinus[1] = 255;
-                            ipMinus[0] = (byte)(ipMinus[0] - 1);
+                            ipMinus[2] = 255;
+
+                            if (ipMinus[1] == 0)
+                            {
+                                ipMinus[1] = 255;
+                                ipMinus[0] = (byte)(ipMinus[0] - 1);
+                            }
+                            else
+                            {
+                                ipMinus[1] = (byte)(ipMinus[1] - 1);
+                            }
+
                         }
                         else
                         {
-                            ipMinus[1] = (byte)(ipMinus[1] - 1);
+                            ipMinus[2] = (byte)(ipMinus[2] - 1);
                         }
-
                     }
                     else
                     {
-                        ipMinus[2] = (byte)(ipMinus[2] - 1);
+                        ipMinus[3] = (byte)(ipMinus[3] - 1);
                     }
+                    ipList.Add(new IPAddress(ipMinus).ToString());
+                    ipList.Add(new IPAddress(ip).ToString());
+                    ipList = ipList
+                .Select(Version.Parse)
+                .OrderBy(arg => arg)
+                .Select(arg => arg.ToString())
+                .ToList();
+                    RemoteAddresses += theaddress.ToString() + ",";
                 }
-                else
-                {
-                    ipMinus[3] = (byte)(ipMinus[3] - 1);
-                }
-                ipList.Add(new IPAddress(ipMinus).ToString());
-                ipList.Add(new IPAddress(ip).ToString());
-                ipList=ipList
-            .Select(Version.Parse)
-            .OrderBy(arg => arg)
-            .Select(arg => arg.ToString())
-            .ToList();
-                RemoteAddresses += theaddress.ToString() + ",";
+               
 
             }
             var sortedIps = ipList
@@ -829,8 +867,6 @@ namespace Client
                 }
             }
             firewallRule.RemoteAddresses = ra;
-            // firewallRule.LocalAddresses = RemoteAddresses;
-            //firewallRule.Description = "Used to block all internet access.";
             firewallRule.Action = NET_FW_ACTION_.NET_FW_ACTION_BLOCK;
             firewallRule.Direction = NET_FW_RULE_DIRECTION_.NET_FW_RULE_DIR_OUT;
             firewallRule.Enabled = true;
@@ -840,21 +876,6 @@ namespace Client
             INetFwPolicy2 firewallPolicy = (INetFwPolicy2)Activator.CreateInstance(
                 Type.GetTypeFromProgID("HNetCfg.FwPolicy2"));
             firewallPolicy.Rules.Add(firewallRule);
-
-            //let local IPs through (intranet, jobboss, etc)
-
-            // INetFwRule firewallRule = (INetFwRule)Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FWRule"));
-            // firewallRule.Action = NET_FW_ACTION_.NET_FW_ACTION_MAX;
-            // firewallRule.Direction = NET_FW_RULE_DIRECTION_.NET_FW_RULE_DIR_OUT;
-            // firewallRule.Enabled = true;
-            // firewallRule.InterfaceTypes = "All";
-            //// firewallRule.LocalAddresses = "10.1.10.1-10.1.10.255"; //local IP's assumed to be in 10.1.10. range
-            // firewallRule.RemoteAddresses += "https://ya.ru/";
-            // firewallRule.Name = "Allow all local intranet";
-            // INetFwPolicy2 firewallPolicy = (INetFwPolicy2)Activator.CreateInstance(
-            //    Type.GetTypeFromProgID("HNetCfg.FwPolicy2"));
-            // firewallPolicy.Rules.Add(firewallRule);
-            //AllowIp("ya.ru", "rule");
         }
 
         static long ToInt(string addr)
